@@ -4,35 +4,55 @@ pragma solidity 0.8.9;
 import {IAxelarGateway} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol';
 import {IAxelarGasService} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol';
 import {AxelarExecutable} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/executables/AxelarExecutable.sol';
+import { StringToAddress, AddressToString } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/StringAddressUtils.sol';
 
 contract PingSender is AxelarExecutable {
+    using StringToAddress for string;
+    using AddressToString for address;
     IAxelarGasService immutable gasReceiver;
 
+    error NotEnoughValueForGas();
+
+    string public thisChain;
     string public valueSent = '';
     string public valueReceived = '';
     string private constant PONG = 'PONG';
     string private constant PING = 'PING';
 
-    constructor(address _gateway, address _gasReceiver) AxelarExecutable(_gateway){
+    constructor(address _gateway, address _gasReceiver, string memory thisChain_) AxelarExecutable(_gateway){
         gasReceiver = IAxelarGasService(_gasReceiver);
+        thisChain = thisChain_;
     }
 
     function ping(
         string calldata destinationChain,
         string calldata destinationAddress,
-        string memory message
+        bytes calldata payload,
+        uint256 gasForRemote
     ) public payable {
-        bytes memory payload = abi.encode(message);
-        if (msg.value > 0) {
-            gasReceiver.payNativeGasForContractCall{value: msg.value}(
+        bytes memory modifiedPayload = abi.encode(PONG);
+        if (gasForRemote > 0) {
+            if (gasForRemote > msg.value) revert NotEnoughValueForGas();
+            gasReceiver.payNativeGasForContractCall{ value: gasForRemote }(
                 address(this),
                 destinationChain,
                 destinationAddress,
                 payload,
                 msg.sender
             );
+            
+            if (msg.value > gasForRemote) {
+                gasReceiver.payNativeGasForContractCall{ value: msg.value - gasForRemote }(
+                    destinationAddress.toAddress(),
+                    thisChain,
+                    address(this).toString(),
+                    modifiedPayload,
+                    msg.sender
+                );
+            }
         }
-        valueSent = message;
+        
+        valueSent = abi.decode(payload, (string));
         gateway.callContract(destinationChain, destinationAddress, payload);
     }
 
@@ -42,10 +62,11 @@ contract PingSender is AxelarExecutable {
         bytes calldata payload
     ) internal override {
         string memory message = abi.decode(payload, (string));
-        require(keccak256(abi.encodePacked((message))) == keccak256(abi.encodePacked((PING))), 'Message should be PING');
         valueReceived = message;
+        require(keccak256(abi.encodePacked((message))) == keccak256(abi.encodePacked((PING))), 'Message should be PING');
         
-        //send pong back to source address
-        ping(sourceChain_, sourceAddress_, PONG);
+        gateway.callContract(sourceChain_, sourceAddress_, abi.encode(PING));
+        valueSent = PONG;
+
     }
 }

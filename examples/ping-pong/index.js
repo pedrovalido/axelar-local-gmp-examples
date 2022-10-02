@@ -4,6 +4,7 @@ const {
     getDefaultProvider,
     Contract,
     constants: { AddressZero },
+    utils: { defaultAbiCoder },
 } = require('ethers');
 const {
     utils: { deployContract },
@@ -31,6 +32,7 @@ async function test(chains, wallet, options) {
 
     const source = chains.find((chain) => chain.name === (args[0] || 'Avalanche'));
     const destination = chains.find((chain) => chain.name === (args[1] || 'Fantom'));
+    const payload = defaultAbiCoder.encode(['string'], ['PING']);
 
     async function logValue() {
         console.log(`valueSent at ${source.name} is "${await source.contract.valueSent()}"`);
@@ -44,13 +46,18 @@ async function test(chains, wallet, options) {
     await logValue();
 
     //Set the gasLimit to 3e5 (a safe overestimate) and get the gas price.
-    const gasLimit = 3e5;
-    const gasPrice = await getGasPrice(source, destination, AddressZero);
+    const gasLimitRemote = 3e5;
+    const gasLimitSource = 3e5;
+    const gasPriceRemote = await getGasPrice(source, destination, AddressZero);
+    const gasPriceSource = await getGasPrice(source, source, AddressZero);
+    const gasAmountRemote = BigInt(Math.floor(gasLimitRemote * gasPriceRemote));
+    const gasAmountSource = BigInt(Math.floor(gasLimitSource * gasPriceSource));
 
-    const tx = await source.contract.ping(destination.name, destination.pingSender, 'PING', {
-        value: BigInt(Math.floor(gasLimit * gasPrice)),
-    });
-    await tx.wait();
+    const tx = await (
+        await source.contract.ping(destination.name, destination.pingSender, payload, gasAmountRemote, {
+            value: gasAmountRemote + gasAmountSource,
+        })
+    ).wait();
 
     //
     while ((await source.contract.valueSent()) !== 'PING') {
@@ -67,6 +74,7 @@ async function test(chains, wallet, options) {
 
     console.log('--- source -> destination ---')
     await logValue();
+
 
     //
     while ((await source.contract.valueReceived()) !== 'PONG') {
