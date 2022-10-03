@@ -1,72 +1,74 @@
-//SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
+
 pragma solidity 0.8.9;
 
-import {IAxelarGateway} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol';
-import {IAxelarGasService} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol';
-import {AxelarExecutable} from '@axelar-network/axelar-gmp-sdk-solidity/contracts/executables/AxelarExecutable.sol';
+import { AxelarExecutable } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/executables/AxelarExecutable.sol';
+import { IAxelarGateway } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol';
+import { IAxelarGasService } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol';
 import { StringToAddress, AddressToString } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/StringAddressUtils.sol';
 
 contract PingSender is AxelarExecutable {
     using StringToAddress for string;
     using AddressToString for address;
-    IAxelarGasService immutable gasReceiver;
 
     error NotEnoughValueForGas();
 
-    string public thisChain;
     string public valueSent = '';
     string public valueReceived = '';
-    string private constant PONG = 'PONG';
-    string private constant PING = 'PING';
 
-    constructor(address _gateway, address _gasReceiver, string memory thisChain_) AxelarExecutable(_gateway){
-        gasReceiver = IAxelarGasService(_gasReceiver);
+    string public constant PING = 'PING';
+    string public constant PONG = 'PONG';
+    uint256 public constant NONCE = 0;
+    IAxelarGasService public immutable gasReceiver;
+    string public thisChain;
+
+    constructor(
+        address gateway_,
+        address gasReceiver_,
+        string memory thisChain_
+    ) AxelarExecutable(gateway_) {
+        gasReceiver = IAxelarGasService(gasReceiver_);
         thisChain = thisChain_;
     }
 
     function ping(
         string calldata destinationChain,
-        string calldata destinationAddress,
+        string calldata contractAddress,
         bytes calldata payload,
         uint256 gasForRemote
-    ) public payable {
-        bytes memory modifiedPayload = abi.encode(PONG);
+    ) external payable {
+        bytes memory modifiedPayload = abi.encode(NONCE, payload);
+
         if (gasForRemote > 0) {
             if (gasForRemote > msg.value) revert NotEnoughValueForGas();
             gasReceiver.payNativeGasForContractCall{ value: gasForRemote }(
                 address(this),
                 destinationChain,
-                destinationAddress,
-                payload,
+                contractAddress,
+                modifiedPayload,
                 msg.sender
             );
-            
             if (msg.value > gasForRemote) {
                 gasReceiver.payNativeGasForContractCall{ value: msg.value - gasForRemote }(
-                    destinationAddress.toAddress(),
+                    contractAddress.toAddress(),
                     thisChain,
                     address(this).toString(),
-                    modifiedPayload,
+                    abi.encode(NONCE, PONG),
                     msg.sender
                 );
             }
         }
-        
+
         valueSent = abi.decode(payload, (string));
-        gateway.callContract(destinationChain, destinationAddress, payload);
+        gateway.callContract(destinationChain, contractAddress, modifiedPayload);
     }
 
     function _execute(
-        string calldata sourceChain_,
-        string calldata sourceAddress_,
+        string calldata, /*sourceChain*/
+        string calldata, /*sourceAddress*/
         bytes calldata payload
     ) internal override {
-        string memory message = abi.decode(payload, (string));
+        (, string memory message) = abi.decode(payload, (uint256, string));
         valueReceived = message;
-        require(keccak256(abi.encodePacked((message))) == keccak256(abi.encodePacked((PING))), 'Message should be PING');
-        
-        gateway.callContract(sourceChain_, sourceAddress_, abi.encode(PING));
-        valueSent = PONG;
-
     }
 }

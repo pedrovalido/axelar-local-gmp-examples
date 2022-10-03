@@ -12,12 +12,18 @@ const {
 
 const { sleep } = require('../../utils');
 const PingSender = require('../../artifacts/examples/ping-pong/PingSender.sol/PingSender.json');
+const PingReceiver = require('../../artifacts/examples/ping-pong/PingReceiver.sol/PingReceiver.json');
 
 async function deploy(chain, wallet) {
     console.log(`Deploying PingSender for ${chain.name}.`);
-    const contract = await deployContract(wallet, PingSender, [chain.gateway, chain.gasReceiver]);
-    chain.pingSender = contract.address;
+    const sender = await deployContract(wallet, PingSender, [chain.gateway, chain.gasReceiver, chain.name]);
+    chain.pingSender = sender.address;
     console.log(`Deployed PingSender for ${chain.name} at ${chain.pingSender}.`);
+
+    console.log(`Deploying PingReceiver for ${chain.name}.`);
+    const receiver = await deployContract(wallet, PingReceiver, [chain.gateway]);
+    chain.pingReceiver = receiver.address;
+    console.log(`Deployed PingReceiver for ${chain.name} at ${chain.pingReceiver}.`);
 }
 
 async function test(chains, wallet, options) {
@@ -27,7 +33,8 @@ async function test(chains, wallet, options) {
     for (const chain of chains) {
         const provider = getDefaultProvider(chain.rpc);
         chain.wallet = wallet.connect(provider);
-        chain.contract = new Contract(chain.pingSender, PingSender.abi, chain.wallet);
+        chain.pingSender = new Contract(chain.pingSender, PingSender.abi, chain.wallet);
+        chain.pingReceiver = new Contract(chain.pingReceiver, PingReceiver.abi, chain.wallet);
     }
 
     const source = chains.find((chain) => chain.name === (args[0] || 'Avalanche'));
@@ -35,11 +42,11 @@ async function test(chains, wallet, options) {
     const payload = defaultAbiCoder.encode(['string'], ['PING']);
 
     async function logValue() {
-        console.log(`valueSent at ${source.name} is "${await source.contract.valueSent()}"`);
-        console.log(`valueReceived at ${source.name} is "${await source.contract.valueReceived()}"`);
+        console.log(`valueSent at ${source.name} is "${await source.pingSender.valueSent()}"`);
+        console.log(`valueReceived at ${source.name} is "${await source.pingSender.valueReceived()}"`);
 
-        console.log(`valueSent at ${destination.name} is "${await destination.contract.valueSent()}"`);
-        console.log(`valueReceived at ${destination.name} is "${await destination.contract.valueReceived()}"`);
+        console.log(`valueSent at ${destination.name} is "${await destination.pingReceiver.valueSent()}"`);
+        console.log(`valueReceived at ${destination.name} is "${await destination.pingReceiver.valueReceived()}"`);
     }
 
     console.log('--- Initially ---');
@@ -54,30 +61,26 @@ async function test(chains, wallet, options) {
     const gasAmountSource = BigInt(Math.floor(gasLimitSource * gasPriceSource));
 
     const tx = await (
-        await source.contract.ping(destination.name, destination.pingSender, payload, gasAmountRemote, {
+        await source.pingSender.ping(destination.name, destination.pingReceiver.address, payload, gasAmountRemote, {
             value: gasAmountRemote + gasAmountSource,
         })
     ).wait();
 
-    //
-    while ((await source.contract.valueSent()) !== 'PING') {
+    while ((await source.pingSender.valueSent()) !== 'PING') {
         await sleep(2000);
     }
 
     console.log('--- user -> source ---')
     await logValue();
 
-    //
-    while ((await destination.contract.valueReceived()) !== 'PING') {
+    while ((await destination.pingReceiver.valueReceived()) !== 'PING') {
         await sleep(2000);
     }
 
     console.log('--- source -> destination ---')
     await logValue();
 
-
-    //
-    while ((await source.contract.valueReceived()) !== 'PONG') {
+    while ((await source.pingSender.valueReceived()) !== 'PONG') {
         await sleep(2000);
     }
 
