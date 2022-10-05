@@ -41,16 +41,16 @@ async function test(chains, wallet, options) {
     const destination = chains.find((chain) => chain.name === (args[1] || 'Fantom'));
     const payload = defaultAbiCoder.encode(['string'], ['PING']);
 
+    const nonceSource = BigInt(await source.pingSender.nonce());
+    const nonceDestination = BigInt(await destination.pingReceiver.nonce());
+
     async function logValue() {
-        console.log(`valueSent at ${source.name} is "${await source.pingSender.valueSent()}"`);
-        console.log(`valueReceived at ${source.name} is "${await source.pingSender.valueReceived()}"`);
+        console.log(`valueSent at ${source.name} is "${await source.pingSender.getValueSent()}"`);
+        console.log(`valueReceived at ${source.name} is "${await source.pingSender.getValueReceived()}"`);
 
-        console.log(`valueSent at ${destination.name} is "${await destination.pingReceiver.valueSent()}"`);
-        console.log(`valueReceived at ${destination.name} is "${await destination.pingReceiver.valueReceived()}"`);
+        console.log(`valueSent at ${destination.name} is "${await destination.pingReceiver.getValueSent()}"`);
+        console.log(`valueReceived at ${destination.name} is "${await destination.pingReceiver.getValueReceived()}"`);
     }
-
-    console.log('--- Initially ---');
-    await logValue();
 
     //Set the gasLimit to 3e5 (a safe overestimate) and get the gas price.
     const gasLimitRemote = 3e5;
@@ -66,26 +66,27 @@ async function test(chains, wallet, options) {
         })
     ).wait();
 
-    while ((await source.pingSender.valueSent()) !== 'PING') {
+
+    console.log(`--- user -> ${source.name} ---`)
+    while ((await source.pingSender.getValueSent()) !== 'PING' || BigInt(await source.pingSender.nonce()) !== nonceSource + 1n) {
         await sleep(2000);
     }
-
-    console.log('--- user -> source ---')
     await logValue();
 
-    while ((await destination.pingReceiver.valueReceived()) !== 'PING') {
+
+    console.log(`--- ${source.name} -> ${destination.name} ---`)
+    while ((await destination.pingReceiver.getValueReceived()) !== 'PING' || BigInt(await destination.pingReceiver.nonce()) !== nonceDestination + 1n) {
         await sleep(2000);
     }
-
-    console.log('--- source -> destination ---')
     await logValue();
 
-    while ((await source.pingSender.valueReceived()) !== 'PONG') {
+
+    console.log(`--- ${destination.name} -> ${source.name} ---`)
+    while ((await source.pingSender.getValueReceived()) !== 'PONG') {
         await sleep(2000);
     }
-
-    console.log('--- destination -> source ---')
     await logValue();
+
 }
 
 module.exports = {

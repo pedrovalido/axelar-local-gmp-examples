@@ -13,14 +13,15 @@ contract PingSender is AxelarExecutable {
 
     error NotEnoughValueForGas();
 
-    string public valueSent = '';
-    string public valueReceived = '';
+    mapping(uint256 => string) public valueSent;
+    mapping(uint256 => string) public valueReceived;
 
     string public constant PING = 'PING';
     string public constant PONG = 'PONG';
-    uint256 public constant NONCE = 0;
+
     IAxelarGasService public immutable gasReceiver;
     string public thisChain;
+    uint256 public nonce;
 
     constructor(
         address gateway_,
@@ -31,36 +32,47 @@ contract PingSender is AxelarExecutable {
         thisChain = thisChain_;
     }
 
+    function getValueSent() external view returns (string memory) {
+        return valueSent[nonce];
+    }
+
+    function getValueReceived() external view returns (string memory) {
+        return valueReceived[nonce];
+    }
+
     function ping(
         string calldata destinationChain,
-        string calldata contractAddress,
+        string calldata destinationAddress,
         bytes calldata payload,
         uint256 gasForRemote
     ) external payable {
-        bytes memory modifiedPayload = abi.encode(NONCE, payload);
+        string memory message = abi.decode(payload, (string));
+        nonce++;
+        uint256 nonce_ = nonce;
+        bytes memory modifiedPayload = abi.encode(nonce_, payload);
 
         if (gasForRemote > 0) {
             if (gasForRemote > msg.value) revert NotEnoughValueForGas();
             gasReceiver.payNativeGasForContractCall{ value: gasForRemote }(
                 address(this),
                 destinationChain,
-                contractAddress,
+                destinationAddress,
                 modifiedPayload,
                 msg.sender
             );
             if (msg.value > gasForRemote) {
                 gasReceiver.payNativeGasForContractCall{ value: msg.value - gasForRemote }(
-                    contractAddress.toAddress(),
+                    destinationAddress.toAddress(),
                     thisChain,
                     address(this).toString(),
-                    abi.encode(NONCE, PONG),
+                    abi.encode(nonce_, PONG),
                     msg.sender
                 );
             }
         }
 
-        valueSent = abi.decode(payload, (string));
-        gateway.callContract(destinationChain, contractAddress, modifiedPayload);
+        valueSent[nonce] = message;
+        gateway.callContract(destinationChain, destinationAddress, modifiedPayload);
     }
 
     function _execute(
@@ -69,6 +81,8 @@ contract PingSender is AxelarExecutable {
         bytes calldata payload
     ) internal override {
         (, string memory message) = abi.decode(payload, (uint256, string));
-        valueReceived = message;
+        valueReceived[nonce] = message;
+        valueReceived[nonce - 1] = '';
+        valueSent[nonce - 1] = '';
     }
 }
