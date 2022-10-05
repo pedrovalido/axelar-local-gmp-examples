@@ -52,7 +52,7 @@ async function test(chains, wallet, options) {
         console.log(`valueReceived at ${destination.name} is "${await destination.pingReceiver.getValueReceived()}"`);
     }
 
-    //Set the gasLimit to 3e5 (a safe overestimate) and get the gas price.
+    // Set the gasLimit to 3e5 (a safe overestimate) and get the gas price.
     const gasLimitRemote = 3e5;
     const gasLimitSource = 3e5;
     const gasPriceRemote = await getGasPrice(source, destination, AddressZero);
@@ -66,27 +66,26 @@ async function test(chains, wallet, options) {
         })
     ).wait();
 
-
-    console.log(`--- user -> ${source.name} ---`)
+    console.log(`--- user -> ${source.name} ---`);
     while ((await source.pingSender.getValueSent()) !== 'PING' || BigInt(await source.pingSender.nonce()) !== nonceSource + 1n) {
         await sleep(2000);
     }
     await logValue();
 
-
-    console.log(`--- ${source.name} -> ${destination.name} ---`)
-    while ((await destination.pingReceiver.getValueReceived()) !== 'PING' || BigInt(await destination.pingReceiver.nonce()) !== nonceDestination + 1n) {
+    console.log(`--- ${source.name} -> ${destination.name} ---`);
+    while (
+        (await destination.pingReceiver.getValueReceived()) !== 'PING' ||
+        BigInt(await destination.pingReceiver.nonce()) !== nonceDestination + 1n
+    ) {
         await sleep(2000);
     }
     await logValue();
 
-
-    console.log(`--- ${destination.name} -> ${source.name} ---`)
+    console.log(`--- ${destination.name} -> ${source.name} ---`);
     while ((await source.pingSender.getValueReceived()) !== 'PONG') {
         await sleep(2000);
     }
     await logValue();
-
 }
 
 module.exports = {
